@@ -17,6 +17,7 @@ import pandas as pd
 import yfinance as yf
 
 from etf_holdings import fetch_official_holdings
+from rotation_model import load_rotation_model, percentile_ranks as _percentile_ranks, score_rotation as _rotation_scores
 
 
 _YF_CACHE = Path(__file__).resolve().parent / ".cache" / "yfinance"
@@ -57,6 +58,9 @@ ETF_NAMES = {
     "PPA": "Invesco Aerospace & Defense", "SHLD": "Global X Defense Tech",
     "QQQ": "Invesco QQQ", "SPY": "SPDR S&P 500", "XLI": "Industrial Select",
     "XLE": "Energy Select", "XLV": "Health Care Select", "XLF": "Financial Select",
+    "HYG": "iShares High Yield Corporate Bond", "LQD": "iShares Investment Grade Corporate Bond",
+    "IWM": "iShares Russell 2000", "XLY": "Consumer Discretionary Select", "XLP": "Consumer Staples Select",
+    "^VIX": "CBOE Volatility Index", "^VIX3M": "CBOE 3-Month Volatility Index",
 }
 
 ROTATION_ETFS = {
@@ -64,6 +68,18 @@ ROTATION_ETFS = {
     "Software": "IGV", "Defense": "ITA", "Financials": "XLF",
     "Health": "XLV", "Industrials": "XLI", "Energy": "XLE",
 }
+
+ROTATION_TO_SECTOR = {
+    "Semis": "Semiconductor", "AI Infra": "AI", "Power": "Power",
+    "Cyber": "Cyber Security", "Software": "Software", "Defense": "Defense",
+}
+
+RISK_SIGNAL_SPECS = (
+    ("QQQ/SPY", "QQQ", "SPY"),
+    ("HYG/LQD", "HYG", "LQD"),
+    ("IWM/SPY", "IWM", "SPY"),
+    ("XLY/XLP", "XLY", "XLP"),
+)
 
 # Liquid cross-sector universe used for breadth. This is intentionally fixed so
 # coverage is transparent and the dashboard does not scrape an index webpage.
@@ -124,6 +140,46 @@ def _money(value: float) -> str:
     return f"{sign}${amount / 1_000_000:.0f}M"
 
 
+def _risk_regime(valid: dict[str, pd.DataFrame], breadth_score: float) -> tuple[str, str, float, list[dict[str, Any]]]:
+    """Classify risk appetite from cross-asset ratios plus market breadth."""
+    signals: list[dict[str, Any]] = []
+    for label, numerator, denominator in RISK_SIGNAL_SPECS:
+        if numerator not in valid or denominator not in valid:
+            continue
+        joined = pd.concat(
+            [valid[numerator]["Close"], valid[denominator]["Close"]], axis=1, join="inner",
+        ).dropna()
+        if len(joined) <= 20:
+            continue
+        ratio = joined.iloc[:, 0] / joined.iloc[:, 1]
+        change = _pct(ratio, 20)
+        signals.append({"name": label, "value": round(change, 2), "risk_on": change > 0, "unit": "% 20D"})
+
+    if "^VIX" in valid and "^VIX3M" in valid:
+        joined = pd.concat(
+            [valid["^VIX"]["Close"], valid["^VIX3M"]["Close"]], axis=1, join="inner",
+        ).dropna()
+        if not joined.empty:
+            ratio = float(joined.iloc[-1, 0] / joined.iloc[-1, 1])
+            signals.append({"name": "VIX/VIX3M", "value": round(ratio, 3), "risk_on": ratio < 1, "unit": "ratio"})
+
+    confirming = sum(bool(signal["risk_on"]) for signal in signals)
+    if not signals:
+        return "NO DATA", f"Cross-asset unavailable · breadth {breadth_score:.0f}%", 0.0, []
+    signal_score = confirming / max(len(signals), 1) * 100
+    composite = round(signal_score * 0.8 + breadth_score * 0.2, 1)
+    if len(signals) < 3:
+        regime = "PARTIAL"
+    elif composite >= 65:
+        regime = "RISK-ON"
+    elif composite <= 35:
+        regime = "RISK-OFF"
+    else:
+        regime = "NEUTRAL"
+    note = f"{confirming}/{len(signals)} cross-asset · breadth {breadth_score:.0f}%" if signals else f"Breadth-only · {breadth_score:.0f}%"
+    return regime, note, composite, signals
+
+
 def _breadth_metrics(
     valid: dict[str, pd.DataFrame], tickers: list[str], weights: dict[str, float] | None = None,
 ) -> tuple[int, float, dict[str, float]]:
@@ -149,14 +205,16 @@ def _breadth_metrics(
         weighted_above200 += weight if is_above200 else 0.0
 
     coverage = len(frames)
-    ad_ratio = advances / max(declines, 1)
+    ad_ratio = (advances + 1) / (declines + 1)
+    ad_diff = (advances - declines) / max(advances + declines, 1)
     above50_pct = above50 / max(coverage, 1) * 100
     above200_pct = above200 / max(coverage, 1) * 100
     score = round((above50_pct + above200_pct) / 2, 1)
     weighted50_pct = weighted_above50 / max(weight_total, 1) * 100
     weighted200_pct = weighted_above200 / max(weight_total, 1) * 100
     return coverage, score, {
-        "highs": highs, "lows": lows, "ad": ad_ratio,
+        "highs": highs, "lows": lows, "ad": ad_ratio, "ad_diff": ad_diff,
+        "advances": advances, "declines": declines,
         "above50": above50_pct, "above200": above200_pct,
         "weighted_above50": weighted50_pct, "weighted_above200": weighted200_pct,
         "weighted_score": round((weighted50_pct + weighted200_pct) / 2, 1),
@@ -174,17 +232,18 @@ def _fallback(error: str) -> dict[str, Any]:
             name: {"ticker": ticker, "values": [], "today": 0, "average": 0, "spike": 0, "distribution": 0}
             for name, (ticker, _) in SECTOR_ETFS.items()
         },
-        "breadth": {"highs": 0, "lows": 0, "ad": 0, "above50": 0, "above200": 0},
+        "breadth": {"highs": 0, "lows": 0, "ad": 0, "ad_diff": 0, "advances": 0, "declines": 0, "above50": 0, "above200": 0},
         "sector_breadth": {
             name: {"coverage": 0, "total": 0, "score": 0.0, "weighted_score": 0.0, "benchmark_etf": ticker,
                    "holdings_as_of": "Unavailable", "holdings_fallback": True, "holdings_error": "",
-                   "metrics": {"highs": 0, "lows": 0, "ad": 0, "above50": 0, "above200": 0,
+                   "metrics": {"highs": 0, "lows": 0, "ad": 0, "ad_diff": 0, "advances": 0, "declines": 0, "above50": 0, "above200": 0,
                                "weighted_above50": 0, "weighted_above200": 0, "weighted_score": 0}}
             for name, (ticker, _) in SECTOR_ETFS.items()
         },
         "sector_etfs": {name: [] for name in SECTOR_ETFS},
         "sector_leaders": {name: [] for name in SECTOR_ETFS},
-        "etfs": [], "rotation": [], "ai": [],
+        "etfs": [], "rotation": [], "ai": [], "risk_score": 0.0, "risk_signals": [],
+        "rotation_model": load_rotation_model(),
     }
 
 
@@ -218,7 +277,7 @@ def fetch_snapshot(force: bool = False) -> dict[str, Any]:
             as_of = pd.Timestamp(latest_date).strftime("%Y-%m-%d")
 
             coverage, breadth_score, breadth = _breadth_metrics(valid, BREADTH_UNIVERSE)
-            ad_ratio = breadth["ad"]
+            ad_diff = breadth["ad_diff"]
 
             rs: dict[str, dict[str, list[Any]]] = {}
             pair_specs = [
@@ -271,7 +330,7 @@ def fetch_snapshot(force: bool = False) -> dict[str, Any]:
             }
             etfs = sector_etfs.get("Semiconductor", [])
 
-            rotation = []
+            rotation_inputs = []
             for name, ticker in ROTATION_ETFS.items():
                 frame = valid.get(ticker)
                 if frame is None:
@@ -279,15 +338,14 @@ def fetch_snapshot(force: bool = False) -> dict[str, Any]:
                 aligned = pd.concat([frame["Close"], spy["Close"]], axis=1, join="inner").dropna()
                 excess20 = _pct(aligned.iloc[:, 0], 20) - _pct(aligned.iloc[:, 1], 20)
                 excess60 = _pct(aligned.iloc[:, 0], 60) - _pct(aligned.iloc[:, 1], 60)
-                score = round(_clamp(70 + excess60 * 2.2, 35, 98), 1)
-                rotation.append({"name": name, "momentum": round(excess20, 2), "score": score})
-            rotation.sort(key=lambda item: item["momentum"] + item["score"] / 10, reverse=True)
-
-            sectors = []
-            for name, (ticker, display_ticker) in SECTOR_ETFS.items():
-                item = next((row for row in rotation if ROTATION_ETFS.get(row["name"]) == ticker), None)
-                score = int(round(item["score"])) if item else 0
-                sectors.append({"name": name, "ticker": display_ticker, "score": score})
+                volume = frame["Volume"].dropna().tail(20)
+                average = float(volume.iloc[:-1].mean()) if len(volume) > 1 else 0.0
+                latest = float(volume.iloc[-1]) if len(volume) else 0.0
+                spike = latest / max(average, 1)
+                rotation_inputs.append({
+                    "name": name, "excess20": excess20, "excess60": excess60,
+                    "volume_score": _clamp(50 + (spike - 1) * 50, 0, 100),
+                })
 
             sector_leaders = {}
             sector_breadth = {}
@@ -327,15 +385,25 @@ def fetch_snapshot(force: bool = False) -> dict[str, Any]:
 
             ai_rows = sector_leaders.get("AI", [])
 
-            qqq = valid.get("QQQ")
-            risk_on = bool(qqq is not None and _pct(qqq["Close"], 20) > _pct(spy["Close"], 20) and breadth_score >= 50)
-            risk_regime = "RISK-ON" if risk_on else "CAUTIOUS"
-            bias = "ACCUMULATION" if distribution <= 3 and ad_ratio >= 1 else "DISTRIBUTION"
+            for item in rotation_inputs:
+                sector_name = ROTATION_TO_SECTOR.get(item["name"])
+                item["breadth"] = sector_breadth.get(sector_name, {}).get("score", breadth_score)
+            rotation_model = load_rotation_model()
+            rotation = _rotation_scores(rotation_inputs, rotation_model.get("weights"))
+
+            sectors = []
+            for name, (ticker, display_ticker) in SECTOR_ETFS.items():
+                item = next((row for row in rotation if ROTATION_ETFS.get(row["name"]) == ticker), None)
+                score = int(round(item["score"])) if item else 0
+                sectors.append({"name": name, "ticker": display_ticker, "score": score})
+
+            risk_regime, risk_note, risk_score, risk_signals = _risk_regime(valid, breadth_score)
+            bias = "ACCUMULATION PROXY" if distribution <= 3 and ad_diff >= 0 else "DISTRIBUTION PROXY"
 
             snapshot = {
                 "ok": True, "error": "", "as_of": as_of, "coverage": coverage,
                 "sectors": sectors, "risk_regime": risk_regime,
-                "risk_note": "↗ Broad participation" if risk_on else "Watch breadth",
+                "risk_note": risk_note, "risk_score": risk_score, "risk_signals": risk_signals,
                 "bias": bias, "bias_note": f"{distribution} distribution days / 25",
                 "breadth_score": breadth_score, "rs": rs,
                 "volume": sector_volumes["Semiconductor"],
@@ -343,6 +411,7 @@ def fetch_snapshot(force: bool = False) -> dict[str, Any]:
                 "breadth": breadth, "sector_breadth": sector_breadth,
                 "sector_etfs": sector_etfs, "sector_leaders": sector_leaders,
                 "etfs": etfs, "rotation": rotation, "ai": ai_rows,
+                "rotation_model": rotation_model,
             }
             _cache.update({"snapshot": snapshot, "fetched_at": datetime.now(timezone.utc)})
             return snapshot

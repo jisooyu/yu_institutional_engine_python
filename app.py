@@ -1,4 +1,4 @@
-"""Institutional Flow Engine — live Python/Dash dashboard."""
+"""Institutional Rotation Proxy — live Python/Dash market-participation dashboard."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from market_data import PERIOD_LENGTH, _fallback, fetch_snapshot, period_slice
 
 
-APP_TITLE = "Institutional Flow — Live Rotation Intelligence"
+APP_TITLE = "Institutional Rotation Proxy — Market Participation Intelligence"
 ACCENT = "#b6f36a"
 RED = "#ff6b70"
 AMBER = "#e8a75b"
@@ -116,14 +116,14 @@ def rotation_figure(snapshot: dict, view: str) -> go.Figure:
         figure.add_trace(go.Scatter(
             x=scores, y=momentum, mode="markers+text", text=names, textposition="top center",
             marker={"size": [33 + min(abs(value), 10) * 2 for value in momentum], "color": colors, "opacity": .78, "line": {"color": "#101416", "width": 2}},
-            hovertemplate="%{text}<br>RS %{x:.1f}<br>20D excess %{y:+.1f}%<extra></extra>",
+            hovertemplate="%{text}<br>Composite score %{x:.1f}<br>20D excess %{y:+.1f}%<extra></extra>",
         ))
         layout = base_figure(255)
         layout["margin"] = {"l": 38, "r": 12, "t": 18, "b": 32}
         figure.update_layout(**layout)
-        figure.update_xaxes(title="RELATIVE STRENGTH", range=[30, 100])
+        figure.update_xaxes(title="COMPOSITE ROTATION SCORE", range=[0, 100])
         figure.update_yaxes(title="20D EXCESS RETURN")
-        figure.add_vline(x=70, line_width=1, line_dash="dot", line_color="#344044")
+        figure.add_vline(x=65, line_width=1, line_dash="dot", line_color="#344044")
         figure.add_hline(y=0, line_width=1, line_dash="dot", line_color="#344044")
     return figure
 
@@ -212,9 +212,9 @@ def leadership_rows(snapshot: dict, sector_name: str = "AI") -> list[html.Div]:
 
 def top_bar() -> html.Header:
     return html.Header([
-        html.Div([html.Span("IF", className="brand-mark"), html.Div([html.Strong("INSTITUTIONAL FLOW"), html.Small("LIVE ROTATION INTELLIGENCE")])], className="brand"),
+        html.Div([html.Span("RP", className="brand-mark"), html.Div([html.Strong("ROTATION PROXY"), html.Small("PRICE · VOLUME · BREADTH")])], className="brand"),
         html.Div([html.I(className="status-dot"), "LIVE MARKET DATA", html.B("DAILY / EOD")], className="market-status"),
-        html.Div([html.Button("⌕", className="icon-button"), html.Button("◌", className="icon-button"), html.Div("JD", className="desk-badge"), html.Div(["J. DOH", html.Br(), html.Span("PORTFOLIO DESK")], className="desk-name")], className="header-actions"),
+        html.Div([html.Button("⌕", className="icon-button"), html.Button("◌", className="icon-button"), html.Div("JS", className="desk-badge"), html.Div(["JS YU", html.Br(), html.Span("PORTFOLIO DESK")], className="desk-name")], className="header-actions"),
     ], className="topbar")
 
 
@@ -239,13 +239,13 @@ def app_layout(initial_snapshot: dict | None = None) -> html.Main:
         ], className="sidebar"),
         html.Section([
             html.Div([
-                html.Div([label("LIVE MARKET OVERVIEW"), html.H1("Institutional Rotation Monitor"), html.P("Detecting capital migration from live daily price and volume data.")]),
+                html.Div([label("LIVE MARKET OVERVIEW"), html.H1("Market Rotation Proxy Monitor"), html.P("Inferring participation and sector rotation from daily price, volume, breadth, and cross-asset data.")]),
                 html.Div([html.Span("LIVE DATA", id="feed-badge"), html.Button("↻ Refresh", id="refresh-button", n_clicks=0), html.Small(f"As of {initial.get('as_of', '—')}", id="updated-time")], className="workspace-tools"),
             ], className="workspace-head"),
             html.Div(id="feed-message", className="feed-message"),
             html.Div([
                 html.Div([html.P("RISK REGIME"), html.B(id="risk-value"), html.Small(id="risk-note")]),
-                html.Div([html.P("INSTITUTIONAL BIAS"), html.B(id="bias-value"), html.Small(id="bias-note")]),
+                html.Div([html.P("PRICE / VOLUME BIAS"), html.B(id="bias-value"), html.Small(id="bias-note")]),
                 html.Div([html.P("LEADING SECTOR"), html.B(id="leading-sector"), html.Small(id="leading-note")]),
                 html.Div([html.P("MARKET BREADTH"), html.B(id="breadth-value"), html.Small(id="breadth-note")]),
             ], className="signal-strip"),
@@ -274,15 +274,15 @@ def app_layout(initial_snapshot: dict | None = None) -> html.Main:
                 html.Section([
                     card_header("SECTOR ROTATION", "Momentum Map", dcc.RadioItems(id="rotation-view", options=[{"label":"Map","value":"map"},{"label":"Rank","value":"rank"}], value="map", inline=True, className="periods", inputClassName="period-input", labelClassName="period-option")),
                     dcc.Graph(id="rotation-chart", config={"displayModeBar": False}),
-                    html.Div([html.Span("WEAKENING"), html.I(), html.Span("IMPROVING"), html.B("20D excess return × 60D relative strength")], className="rotation-legend"),
+                    html.Div([html.Span("WEAKENING"), html.I(), html.Span("IMPROVING"), html.B(id="rotation-model-note")], className="rotation-legend"),
                 ], className="card rotation-card"),
                 html.Section([
-                    card_header("SECTOR ETF MONITOR", "Semiconductor ETF Activity", html.Span("SIGNED $ TURNOVER PROXY", className="subtle"), title_id="etf-title"),
-                    html.Div([html.Span("ETF"), html.Span("ACTIVITY"), html.Span("RETURN")], className="table-head"), html.Div(id="etf-table", className="etf-table"),
+                    card_header("SECTOR ETF MONITOR", "Semiconductor Directional Turnover", html.Span("NOT FUND FLOW", className="subtle"), title_id="etf-title"),
+                    html.Div([html.Span("ETF"), html.Span("SIGNED TURNOVER"), html.Span("RETURN")], className="table-head"), html.Div(id="etf-table", className="etf-table"),
                 ], className="card etf-card"),
                 html.Section([card_header("SECTOR LEADERSHIP", "Semiconductor Leadership Stack", badge("LIVE PRICES", element_id="ai-badge"), title_id="leadership-title"), html.Div(id="supply-grid", className="supply-grid")], className="card supply-card"),
             ], className="dashboard-grid"), type="circle", color=ACCENT),
-            html.Footer([html.Span([html.I(className="status-dot"), "YAHOO FINANCE EOD FEED"]), html.Span("ETF ACTIVITY IS A TURNOVER PROXY · NOT CREATION/REDEMPTION FLOW"), html.Span("INSTITUTIONAL FLOW ENGINE · PYTHON/DASH")]),
+            html.Footer([html.Span([html.I(className="status-dot"), "YAHOO FINANCE EOD FEED"]), html.Span("DIRECTIONAL TURNOVER IS A PROXY · NOT CREATION/REDEMPTION FLOW"), html.Span("ROTATION PROXY ENGINE · PHASE 1")]),
         ], className="workspace"),
     ], className="app-shell")
 
@@ -305,18 +305,27 @@ def refresh_market_data(_: int, __: int, ___: int) -> dict:
     Output("sector-selector", "options"), Output("risk-value", "children"), Output("risk-note", "children"),
     Output("bias-value", "children"), Output("bias-note", "children"), Output("updated-time", "children"), Output("feed-badge", "children"),
     Output("data-health-value", "children"), Output("coverage-label", "children"), Output("feed-message", "children"),
+    Output("rotation-model-note", "children"),
     Input("market-store", "data"),
 )
 def render_snapshot(snapshot: dict):
     coverage = snapshot.get("coverage", 0)
     message = snapshot.get("error", "")
     loading = snapshot.get("loading", False)
+    model = snapshot.get("rotation_model", {})
+    weights = model.get("weights", {})
+    status = model.get("model_status")
+    source = "BACKTEST PROMOTED" if status == "candidate-promoted" else "VALIDATED DEFAULT" if status == "default-retained" else "DEFAULT"
+    model_note = (
+        f"{source} · {weights.get('rank20', 0):.0%} 20D · {weights.get('rank60', 0):.0%} 60D · "
+        f"{weights.get('breadth', 0):.0%} breadth · {weights.get('volume', 0):.0%} volume"
+    )
     return (
         sector_options(snapshot), snapshot.get("risk_regime", "—"), snapshot.get("risk_note", ""),
         snapshot.get("bias", "—"), snapshot.get("bias_note", ""), f"As of {snapshot.get('as_of', '—')}",
         "CONNECTING" if loading else "LIVE DATA" if snapshot.get("ok") else "DATA ERROR",
         "CONNECTING" if loading else "LIVE" if snapshot.get("ok") else "ERROR",
-        f"{coverage} breadth symbols", message,
+        f"{coverage} breadth symbols", message, model_note,
     )
 
 
@@ -343,15 +352,15 @@ def render_sector_panels(sector_name: str, snapshot: dict):
     return (
         f"{breadth_score:.1f}%", f"{benchmark} holdings {coverage}/{total} · weighted {weighted_score:.1f}%",
         f"{breadth_score:.1f}%", f"{coverage}/{total}", [
-            breadth_row("52-WEEK HIGH", str(breadth.get("highs", 0)), breadth.get("highs", 0) / max(coverage, 1) * 100),
-            breadth_row("52-WEEK LOW", str(breadth.get("lows", 0)), breadth.get("lows", 0) / max(coverage, 1) * 100, False),
-            breadth_row("ADVANCE / DECLINE", f"{breadth.get('ad', 0):.2f}", min(breadth.get("ad", 0) / 3 * 100, 100)),
+            breadth_row("NEAR 52-WEEK HIGH", str(breadth.get("highs", 0)), breadth.get("highs", 0) / max(coverage, 1) * 100),
+            breadth_row("NEAR 52-WEEK LOW", str(breadth.get("lows", 0)), breadth.get("lows", 0) / max(coverage, 1) * 100, False),
+            breadth_row("ADVANCE − DECLINE", f"{breadth.get('ad_diff', 0):+.2f}", (breadth.get("ad_diff", 0) + 1) * 50, breadth.get("ad_diff", 0) >= 0),
             breadth_row("EQUAL-WT ABOVE 50DMA", f"{breadth.get('above50', 0):.1f}%", breadth.get("above50", 0)),
             breadth_row("ETF-WT ABOVE 50DMA", f"{breadth.get('weighted_above50', 0):.1f}%", breadth.get("weighted_above50", 0)),
             breadth_row("EQUAL-WT ABOVE 200DMA", f"{breadth.get('above200', 0):.1f}%", breadth.get("above200", 0)),
             breadth_row("ETF-WT ABOVE 200DMA", f"{breadth.get('weighted_above200', 0):.1f}%", breadth.get("weighted_above200", 0)),
         ], etf_rows(snapshot, sector_name), leadership_rows(snapshot, sector_name),
-        f"{sector_name} · {benchmark} Holdings Health", f"{sector_name} ETF Activity", f"{benchmark} Top Holdings",
+        f"{sector_name} · {benchmark} Holdings Health", f"{sector_name} Directional Turnover", f"{benchmark} Top Holdings",
         f"{'FALLBACK' if fallback else benchmark} · {holdings_as_of}", f"TOP {min(8, len(leaders))} BY ETF WEIGHT",
     )
 

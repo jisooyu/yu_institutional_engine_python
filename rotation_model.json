@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T06:05:41.816337+00:00",
+  "data_as_of": "2026-07-24",
+  "last_signal_date": "2026-06-23",
+  "source": "backtest-governed",
+  "model_status": "default-retained",
+  "weights": {
+    "rank20": 0.35,
+    "rank60": 0.3,
+    "breadth": 0.2,
+    "volume": 0.15
+  },
+  "training": {
+    "observations": 124,
+    "mean_forward_excess_pct": -0.1526,
+    "mean_net_forward_excess_pct": -0.1871,
+    "median_net_forward_excess_pct": -0.4135,
+    "net_information_ratio": -0.0731,
+    "hit_rate": 0.4435,
+    "information_coefficient": -0.0379,
+    "signal_persistence": 0.7129,
+    "average_one_way_turnover": 0.3454
+  },
+  "validation": {
+    "observations": 69,
+    "mean_forward_excess_pct": 1.5417,
+    "mean_net_forward_excess_pct": 1.5134,
+    "median_net_forward_excess_pct": 1.9106,
+    "net_information_ratio": 0.5174,
+    "hit_rate": 0.6522,
+    "information_coefficient": 0.0979,
+    "signal_persistence": 0.7868,
+    "average_one_way_turnover": 0.2826
+  },
+  "candidate": {
+    "weights": {
+      "rank20": 0.0,
+      "rank60": 0.0,
+      "breadth": 0.2,
+      "volume": 0.8
+    },
+    "training": {
+      "observations": 124,
+      "mean_forward_excess_pct": 0.404,
+      "mean_net_forward_excess_pct": 0.3364,
+      "median_net_forward_excess_pct": 0.1295,
+      "net_information_ratio": 0.1409,
+      "hit_rate": 0.5242,
+      "information_coefficient": 0.057,
+      "signal_persistence": 0.1438,
+      "average_one_way_turnover": 0.6761
+    },
+    "validation": {
+      "observations": 69,
+      "mean_forward_excess_pct": 0.7362,
+      "mean_net_forward_excess_pct": 0.6702,
+      "median_net_forward_excess_pct": 0.2454,
+      "net_information_ratio": 0.21,
+      "hit_rate": 0.5362,
+      "information_coefficient": 0.0508,
+      "signal_persistence": 0.1229,
+      "average_one_way_turnover": 0.6594
+    }
+  },
+  "promotion": {
+    "promoted": false,
+    "rule": "candidate must weakly dominate the documented default on held-out net excess return, net information ratio, information coefficient, and turnover",
+    "checks": {
+      "net_excess_not_worse": false,
+      "net_information_ratio_not_worse": false,
+      "information_coefficient_not_worse": false,
+      "turnover_not_higher": false
+    }
+  },
+  "benchmarks": {
+    "documented_default": {
+      "weights": {
+        "rank20": 0.35,
+        "rank60": 0.3,
+        "breadth": 0.2,
+        "volume": 0.15
+      },
+      "training": {
+        "observations": 124,
+        "mean_forward_excess_pct": -0.1526,
+        "mean_net_forward_excess_pct": -0.1871,
+        "median_net_forward_excess_pct": -0.4135,
+        "net_information_ratio": -0.0731,
+        "hit_rate": 0.4435,
+        "information_coefficient": -0.0379,
+        "signal_persistence": 0.7129,
+        "average_one_way_turnover": 0.3454
+      },
+      "validation": {
+        "observations": 69,
+        "mean_forward_excess_pct": 1.5417,
+        "mean_net_forward_excess_pct": 1.5134,
+        "median_net_forward_excess_pct": 1.9106,
+        "net_information_ratio": 0.5174,
+        "hit_rate": 0.6522,
+        "information_coefficient": 0.0979,
+        "signal_persistence": 0.7868,
+        "average_one_way_turnover": 0.2826
+      }
+    },
+    "rank60_only": {
+      "weights": {
+        "rank20": 0.0,
+        "rank60": 1.0,
+        "breadth": 0.0,
+        "volume": 0.0
+      },
+      "training": {
+        "observations": 124,
+        "mean_forward_excess_pct": 0.2983,
+        "mean_net_forward_excess_pct": 0.2761,
+        "median_net_forward_excess_pct": -0.0079,
+        "net_information_ratio": 0.0935,
+        "hit_rate": 0.4839,
+        "information_coefficient": -0.0115,
+        "signal_persistence": 0.8439,
+        "average_one_way_turnover": 0.2218
+      },
+      "validation": {
+        "observations": 69,
+        "mean_forward_excess_pct": 1.3294,
+        "mean_net_forward_excess_pct": 1.3098,
+        "median_net_forward_excess_pct": 1.2924,
+        "net_information_ratio": 0.4258,
+        "hit_rate": 0.6377,
+        "information_coefficient": 0.0819,
+        "signal_persistence": 0.8984,
+        "average_one_way_turnover": 0.1957
+      }
+    }
+  },
+  "parameters": {
+    "years": 5,
+    "rebalance_every_sessions": 5,
+    "forward_horizon_sessions": 20,
+    "train_fraction": 0.65,
+    "embargo_rebalances": 4,
+    "top_k": 3,
+    "transaction_cost_bps": 10.0,
+    "holdings_limit_per_sector": 30,
+    "weight_grid_step": 0.1,
+    "selection_objective": "maximize training net information ratio after transaction costs"
+  },
+  "periods": {
+    "training_start": "2022-07-26",
+    "training_end": "2025-01-06",
+    "validation_start": "2025-02-12",
+    "validation_end": "2026-06-23"
+  },
+  "limitations": [
+    "Historical breadth uses current ETF holdings and is subject to survivorship bias.",
+    "Yahoo Finance adjusted prices and volumes are research-grade, not an institutional feed.",
+    "Validation is a single held-out period and does not guarantee future performance.",
+    "Overlapping 20-session forward returns make observations statistically dependent."
+  ]
+}
