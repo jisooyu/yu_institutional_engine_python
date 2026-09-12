@@ -1,154 +1,168 @@
-# Institutional Rotation Proxy Engine — Python
+# Institutional Rotation Proxy Engine
 
-A Python/Dash market-monitoring dashboard that infers sector rotation and participation from daily price, volume, cross-asset ratios, and official ETF holdings breadth.
+미국 주식시장의 **섹터 로테이션과 시장 참여도**를 일별 가격, 거래량, 상대강도, 시장 폭(breadth), 크로스에셋 지표로 추정하는 Python/Dash 대시보드입니다.
 
-This is deliberately described as a **proxy engine**. It does not identify the buyer or seller and does not treat secondary-market ETF turnover as creation/redemption flow.
+> 이 프로젝트는 기관의 실제 매수·매도 주문이나 ETF 설정·환매 자금을 직접 측정하지 않습니다. 화면에 표시되는 수급 및 방향성 거래대금은 시장 데이터를 바탕으로 만든 **프록시(proxy)**이며, 투자 판단을 위한 참고 자료로만 사용해야 합니다.
 
-## What changed in Phase 1.2
+## 주요 기능
 
-- Added a point-in-time historical backtest and model-governance pipeline.
-- Recalculates 20/60-day relative strength, breadth, and relative volume at each historical rebalance date.
-- Measures subsequent 20-session excess return, cross-sectional information coefficient, signal persistence, hit rate, and one-way turnover.
-- Selects candidate weights only on the first 65% of dates, with a four-rebalance embargo before the held-out period.
-- Includes 10bp transaction costs and chooses the training candidate by net information ratio.
-- Compares the candidate with the documented composite and a 60-day-only benchmark.
-- Promotes a candidate only when it weakly dominates the documented model on all four held-out criteria: net excess return, net information ratio, information coefficient, and turnover.
-- Persists the active model, rejected candidate, metrics, parameters, periods, and limitations in `rotation_model.json`.
-- Shows `BACKTEST PROMOTED`, `VALIDATED DEFAULT`, or `DEFAULT` beside the live rotation chart.
+- 반도체, AI, 소프트웨어, 사이버 보안, 전력, 방산 섹터 모니터링
+- 섹터 ETF와 주요 지수의 상대강도 추적
+- 최근 거래량 급증 및 분배일(distribution day) 프록시 계산
+- 52주 고가·저가 근접 종목과 50일·200일 이동평균 상회 비율 분석
+- 공식 ETF 편입 종목 기반 동일가중·ETF 비중가중 시장 폭 계산
+- 20일·60일 상대수익률, 시장 폭, 거래량을 결합한 섹터 로테이션 점수
+- 방향성 거래대금과 ETF 주요 편입 종목 리더십 표시
+- 5개 크로스에셋 신호를 이용한 `RISK-ON` / `NEUTRAL` / `RISK-OFF` 구분
+- 아웃오브샘플 검증을 통과한 모델만 적용하는 백테스트 기반 모델 관리
 
-Phase 1.1 also:
+## 빠른 시작
 
-- Renamed the headline signal from `Institutional Bias` to `Price / Volume Bias`.
-- Labels accumulation and distribution as proxies, not observed institutional transactions.
-- Replaced the unstable raw advance/decline ratio with:
-  - normalized advance-minus-decline breadth in the `-1` to `+1` range;
-  - a Laplace-smoothed A/D ratio retained in the snapshot for analysis.
-- Relabeled the 0.5% tolerance bands as `NEAR 52-WEEK HIGH/LOW`.
-- Rebuilt sector rotation scores from four components:
-  - 35% cross-sectional rank of 20-day excess return;
-  - 30% cross-sectional rank of 60-day excess return;
-  - 20% official ETF-holdings breadth;
-  - 15% benchmark ETF relative-volume participation.
-- Expanded risk-regime classification beyond QQQ/SPY and breadth. It now combines:
-  - QQQ/SPY;
-  - HYG/LQD;
-  - IWM/SPY;
-  - XLY/XLP;
-  - VIX/VIX3M term structure;
-  - broad-market participation as a separate composite weight.
+### 요구 사항
 
-## Dashboard coverage
+- Python 3.10 이상 권장
+- 인터넷 연결(시세 및 ETF 편입 종목 조회)
 
-- Sector universe: Semiconductor, AI, Software, Cyber Security, Power, Defense
-- Relative-strength monitoring for sector ETFs and major benchmarks
-- Volume spike and O'Neil-style distribution-day proxy
-- Near-52-week highs/lows and 50/200-day moving-average breadth
-- Equal-weight and official ETF-weighted holdings breadth
-- Multi-factor sector rotation map and ranking view
-- Directional signed-dollar-turnover monitor
-- Top-eight official ETF-holding leadership stack
-- Five-signal cross-asset risk regime
-- Backtest-governed model loading with a safe documented fallback
-
-## Methodology
-
-### Rotation model and governance
-
-The live score and the backtest share the same implementation in `rotation_model.py`. The four factor inputs are always normalized to sum to one. A persisted `rotation_model.json` controls the live model; if that file is absent or invalid, the documented 35/30/20/15 model is used.
-
-`backtest.py` uses weekly rebalances and a 20-session forward horizon by default. Features at date `t` use only observations available at or before `t`. The last four training rebalances are embargoed so their forward-return windows do not overlap the validation start.
-
-Candidate selection never reads validation performance. It searches the 0.1 weight grid and maximizes training net information ratio after transaction costs. The held-out period is used only as a promotion gate. Failure at the gate leaves the current live model unchanged and records the rejected candidate for auditability.
-
-### Latest five-year run
-
-Data through 2026-07-24 produced the following held-out results for 2025-02-12 through 2026-06-23:
-
-| Model | Net 20D excess | Net information ratio | IC | Persistence | One-way turnover | Hit rate |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Active documented composite | 1.5134% | 0.5174 | 0.0979 | 0.7868 | 0.2826 | 65.22% |
-| Training-selected candidate | 0.6702% | 0.2100 | 0.0508 | 0.1229 | 0.6594 | 53.62% |
-| 60-day rank only | 1.3098% | 0.4258 | 0.0819 | 0.8984 | 0.1957 | 63.77% |
-
-The training-selected candidate was 20% breadth and 80% volume. It failed every held-out promotion criterion, so it was rejected and the documented composite remains active. This is intentional: the backtest may refuse to change the live model.
-
-### Price/volume bias
-
-A distribution day is a session where the benchmark closes lower while volume exceeds the previous session. The dashboard reports an `ACCUMULATION PROXY` only when the recent distribution-day count is low and normalized breadth is non-negative. This is an inference, not investor-class order-flow data.
-
-### Directional turnover
-
-```text
-dollar_turnover = adjusted_close × exchange_volume
-directional_turnover = sign(daily_return) × dollar_turnover
-```
-
-Directional turnover measures trading activity with price direction. It is **not** ETF net flow, shares-outstanding change, NAV-based creation/redemption, or proof of institutional activity.
-
-### Breadth
-
-Official holdings and weights are downloaded from VanEck, Global X, iShares, and First Trust. For each benchmark ETF, the engine calculates equal-weight and ETF-weighted participation above the 50-day and 200-day moving averages.
-
-The normalized advance-minus-decline measure is:
-
-```text
-(advances - declines) / (advances + declines)
-```
-
-This avoids extreme values when there are no declining securities.
-
-### Risk regime
-
-Four ratios are positive when their 20-session trend is rising: QQQ/SPY, HYG/LQD, IWM/SPY, and XLY/XLP. VIX/VIX3M is positive for risk appetite when the current ratio is below 1. Available cross-asset signals receive 80% of the composite weight; broad-market breadth receives 20%.
-
-- `RISK-ON`: composite score at least 65
-- `RISK-OFF`: composite score at most 35
-- `NEUTRAL`: values between those thresholds
-
-Missing signals are excluded transparently from the available-signal count.
-
-## Data reliability
-
-- Daily adjusted prices and exchange volumes come from `yfinance`.
-- Market data is cached for five minutes.
-- Official holdings are cached for 18 hours.
-- If an issuer refresh fails, the last official cache is retained.
-- A labeled fallback holdings basket is used only when no official cache exists.
-- Yahoo Finance data may be delayed and is intended for research/informational use.
-
-## Run on Windows
-
-Double-click `run_dashboard.bat`, or run:
+### 설치 및 실행
 
 ```powershell
+git clone <저장소-URL>
+cd institutional-flow-engine-python
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python app.py
 ```
 
-Then open <http://127.0.0.1:8055>.
+브라우저에서 <http://127.0.0.1:8055>로 접속합니다.
 
-Run the offline validation with:
+Windows에서는 `run_dashboard.bat`을 더블 클릭해 의존성 설치와 실행을 한 번에 진행할 수도 있습니다.
+
+## 테스트
+
+네트워크 호출 없이 대시보드 레이아웃과 핵심 계산 로직을 점검합니다.
 
 ```powershell
 python smoke_test.py
 ```
 
-Recalibrate and validate the model with:
+성공하면 다음 메시지가 출력됩니다.
+
+```text
+Smoke test passed: dashboard layout and datasets are available.
+```
+
+## 백테스트 및 모델 갱신
+
+기본 설정으로 최근 5년 데이터를 사용해 모델 후보를 학습하고 검증하려면 다음 명령을 실행합니다.
 
 ```powershell
 python backtest.py --years 5 --rebalance 5 --horizon 20 --train-fraction 0.65 --top-k 3 --cost-bps 10
 ```
 
-The command rewrites `rotation_model.json`. Review its promotion decision and limitations before committing a newly promoted model.
+주요 옵션은 다음과 같습니다.
 
-## Backtest limitations
+| 옵션 | 기본값 | 설명 |
+| --- | ---: | --- |
+| `--years` | 5 | 조회할 과거 데이터 기간(년) |
+| `--rebalance` | 5 | 리밸런싱 간격(거래일) |
+| `--horizon` | 20 | 선행 수익률 측정 구간(거래일) |
+| `--train-fraction` | 0.65 | 전체 기간 중 학습 구간 비율 |
+| `--top-k` | 3 | 평가 포트폴리오에 포함할 상위 섹터 수 |
+| `--cost-bps` | 10 | 거래비용 가정(bps) |
+| `--holdings-limit` | 30 | 섹터별 ETF 편입 종목 사용 한도 |
+| `--grid-step` | 0.1 | 팩터 가중치 탐색 간격 |
+| `--output` | `rotation_model.json` | 결과 파일 경로 |
 
-- Historical breadth applies today's top ETF holdings to the past and therefore has survivorship bias.
-- Yahoo Finance adjusted prices and volumes are suitable for research, not execution-grade simulation.
-- The held-out period is one market regime and does not guarantee future performance.
-- Weekly observations use overlapping 20-session forward returns, so they are not statistically independent.
-- Results are cross-sectional ETF excess returns, not a complete account-level performance simulation.
+실행 결과는 기본적으로 `rotation_model.json`을 덮어씁니다. 새 후보는 검증 구간에서 기존 모델보다 아래 네 기준을 모두 충족할 때만 활성 모델로 승격됩니다.
 
-## Roadmap toward more direct flow measurement
+- 거래비용 차감 후 초과수익률이 낮지 않을 것
+- 순정보비율(net information ratio)이 낮지 않을 것
+- 정보계수(IC)가 낮지 않을 것
+- 평균 단방향 회전율이 높지 않을 것
 
-The next data layer should prioritize daily ETF shares-outstanding and NAV changes, followed by CFTC COT positioning, FINRA short-volume context, FRED high-yield spreads, and options/futures positioning. Until those sources are licensed and integrated, the project should remain described as a price/volume/breadth proxy engine.
+현재 저장된 모델은 기본 복합 가중치를 유지하고 있습니다.
+
+| 팩터 | 가중치 |
+| --- | ---: |
+| 20일 초과수익률 횡단면 순위 | 35% |
+| 60일 초과수익률 횡단면 순위 | 30% |
+| 공식 ETF 편입 종목 시장 폭 | 20% |
+| 벤치마크 ETF 상대 거래량 | 15% |
+
+## 계산 방법
+
+### 방향성 거래대금
+
+```text
+거래대금 = 수정주가 × 거래량
+방향성 거래대금 = sign(일간 수익률) × 거래대금
+```
+
+이는 거래 활동에 가격 방향을 부여한 값이며 ETF 순유입액, 설정·환매, 발행주식 수 변화 또는 기관 거래의 증거가 아닙니다.
+
+### 시장 폭
+
+VanEck, Global X, iShares, First Trust가 공개한 ETF 편입 종목과 비중을 이용해 50일·200일 이동평균 상회 비율을 계산합니다. 상승-하락 정규화 값은 다음과 같습니다.
+
+```text
+(상승 종목 수 - 하락 종목 수) / (상승 종목 수 + 하락 종목 수)
+```
+
+### 위험 선호 국면
+
+다음 신호의 20거래일 추세와 광범위 시장 참여도를 결합합니다.
+
+- `QQQ/SPY`: 성장주 대 대형주
+- `HYG/LQD`: 하이일드채 대 투자등급채
+- `IWM/SPY`: 소형주 대 대형주
+- `XLY/XLP`: 경기소비재 대 필수소비재
+- `VIX/VIX3M`: 단기 대 중기 변동성 기간구조
+
+사용 가능한 크로스에셋 신호가 종합점수의 80%, 시장 폭이 20%를 차지합니다. 점수가 65 이상이면 `RISK-ON`, 35 이하면 `RISK-OFF`, 그 사이는 `NEUTRAL`로 표시합니다.
+
+## 데이터와 캐시
+
+- 수정주가와 거래량: `yfinance`를 통한 Yahoo Finance 데이터
+- ETF 편입 종목: VanEck, Global X, iShares, First Trust 공식 공개 자료
+- 시장 데이터 캐시: 5분
+- 공식 편입 종목 캐시: 18시간
+- 공식 자료 갱신 실패 시 이전 캐시를 사용하며, 캐시도 없으면 명시된 대체 종목군을 사용
+- 별도의 API 키나 `.env` 설정은 필요하지 않음
+
+캐시 파일은 `.cache/`에 저장되며 Git에 포함되지 않습니다.
+
+## 프로젝트 구조
+
+```text
+.
+├── app.py                # Dash 애플리케이션과 화면 구성
+├── market_data.py        # 시세 조회, 지표 계산, 스냅샷 캐시
+├── etf_holdings.py       # 공식 ETF 편입 종목 수집 및 대체 데이터 처리
+├── rotation_model.py     # 로테이션 점수 및 모델 로딩
+├── backtest.py           # 학습/검증 분리 백테스트와 모델 승격 판단
+├── rotation_model.json   # 현재 활성 모델, 후보, 검증 결과
+├── smoke_test.py         # 오프라인 스모크 테스트
+├── assets/style.css      # 대시보드 스타일
+├── requirements.txt      # Python 의존성
+└── run_dashboard.bat     # Windows 실행 스크립트
+```
+
+## 한계와 주의사항
+
+- 현재 ETF 편입 종목으로 과거 시장 폭을 계산하므로 생존편향이 있습니다.
+- Yahoo Finance 데이터는 연구·정보 제공 목적이며 체결 수준의 시뮬레이션에는 적합하지 않습니다.
+- 검증 구간은 하나의 시장 국면만 반영하며 미래 성과를 보장하지 않습니다.
+- 주간 관측값에서 20거래일 선행수익률 구간이 겹치므로 관측치가 통계적으로 독립적이지 않습니다.
+- 실제 운용 성과가 아니라 섹터 ETF의 횡단면 초과수익률을 평가합니다.
+- 본 프로젝트는 투자 자문이나 매매 권유를 제공하지 않습니다.
+
+## 향후 개선 방향
+
+- ETF 발행주식 수와 NAV 변화를 이용한 설정·환매 추정
+- CFTC COT 포지셔닝 데이터 연동
+- FINRA 공매도 거래량 및 FRED 하이일드 스프레드 추가
+- 옵션·선물 포지셔닝 데이터 통합
+- 단위 테스트와 CI 워크플로 확장
