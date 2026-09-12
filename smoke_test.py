@@ -4,7 +4,7 @@ import pandas as pd
 
 from app import app, app_layout
 from backtest import candidate_weights, evaluate_model, promotion_decision, select_model
-from etf_holdings import ETF_SOURCES, FALLBACK_HOLDINGS
+from etf_holdings import ETF_SOURCES, FALLBACK_HOLDINGS, _normalize_ticker, _renormalize_cached_holdings
 from market_data import (
     BREADTH_UNIVERSE,
     ETF_NAMES,
@@ -34,6 +34,16 @@ def main() -> None:
     assert all(len(leaders) == 8 for leaders in FALLBACK_HOLDINGS.values())
     assert len(ETF_NAMES) >= 30
     assert len(BREADTH_UNIVERSE) >= 50
+
+    assert _normalize_ticker("688297 C1") == "688297.SS"
+    assert _normalize_ticker("ASTOR.TI") == "ASTOR.IS"
+    assert _normalize_ticker("HPS/A.CT") == "HPS-A.TO"
+    assert _normalize_ticker("HEIA") == "HEI-A"
+    assert _normalize_ticker("MOGA") == "MOG-A"
+    cached = {"sectors": {"AI": {"holdings": [
+        {"official_ticker": "688297 C1", "ticker": "688297.ST"},
+    ]}}}
+    assert _renormalize_cached_holdings(cached)["sectors"]["AI"]["holdings"][0]["ticker"] == "688297.SS"
 
     ranks = _percentile_ranks([-2, 0, 4])
     assert ranks[0] < ranks[1] < ranks[2]

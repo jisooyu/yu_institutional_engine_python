@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any, Callable
+import warnings
 
 from lxml import etree
 import pandas as pd
@@ -99,19 +100,39 @@ def _normalize_ticker(value: Any) -> str:
         "FP": ".PA", "IM": ".MI", "CT": ".TO", "CN": ".TO", "AU": ".AX",
         "KS": ".KS", "BZ": ".SA", "NA": ".AS", "HK": ".HK", "SS": ".ST",
         "NO": ".OL", "DC": ".CO", "C2": ".SZ", "C1": ".SS", "TT": ".TW", "SE": ".SW",
-        "SM": ".MC", "BB": ".BR", "TI": ".TA", "PL": ".LS", "AV": ".VI",
+        "SM": ".MC", "BB": ".BR", "TI": ".IS", "PL": ".LS", "AV": ".VI",
         "GA": ".AT", "FH": ".HE",
     }
     parts = ticker.split(" ")
     if len(parts) == 2 and parts[1] in suffixes:
-        ticker = parts[0].replace("/", "") + suffixes[parts[1]]
+        separator = "-" if parts[1] in {"CT", "CN"} else ""
+        ticker = parts[0].replace("/", separator) + suffixes[parts[1]]
     elif len(parts) > 1:
         return ""
-    dotted = re.match(r"^(.+?)\.([A-Z]{2})$", ticker)
-    if dotted and dotted.group(2) in suffixes:
-        ticker = dotted.group(1).replace("/", "") + suffixes[dotted.group(2)]
+    else:
+        dotted = re.match(r"^(.+?)\.([A-Z]{2})$", ticker)
+        if dotted and dotted.group(2) in suffixes:
+            separator = "-" if dotted.group(2) in {"CT", "CN"} else ""
+            ticker = dotted.group(1).replace("/", separator) + suffixes[dotted.group(2)]
     ticker = ticker.replace("BRK.B", "BRK-B").replace("BF.B", "BF-B")
+    ticker = {
+        "HEIA": "HEI-A",
+        "HEI/A": "HEI-A",
+        "MOGA": "MOG-A",
+        "MOG/A": "MOG-A",
+    }.get(ticker, ticker)
     return ticker
+
+
+def _renormalize_cached_holdings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply current Yahoo ticker rules to holdings saved by older releases."""
+    for sector in payload.get("sectors", {}).values():
+        for holding in sector.get("holdings", []):
+            official_ticker = holding.get("official_ticker", holding.get("ticker", ""))
+            normalized = _normalize_ticker(official_ticker)
+            if normalized:
+                holding["ticker"] = normalized
+    return payload
 
 
 def _rows(frame: pd.DataFrame, ticker_col: str, name_col: str, weight_col: str) -> list[dict[str, Any]]:
@@ -134,7 +155,16 @@ def _rows(frame: pd.DataFrame, ticker_col: str, name_col: str, weight_col: str) 
 def _fetch_vaneck(source: dict[str, str]) -> tuple[list[dict[str, Any]], str]:
     response = requests.get(source["url"], headers=_HEADERS, timeout=45)
     response.raise_for_status()
-    frame = pd.read_excel(BytesIO(response.content), header=2)
+    # VanEck's generated workbook omits Excel's optional default style.  The
+    # values are valid, so suppress only openpyxl's narrowly-scoped warning.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Workbook contains no default style, apply openpyxl's default",
+            category=UserWarning,
+            module=r"openpyxl\.styles\.stylesheet",
+        )
+        frame = pd.read_excel(BytesIO(response.content), header=2)
     if "Asset Class" in frame:
         frame = frame[frame["Asset Class"].astype(str).str.lower().eq("stock")]
     filename = response.headers.get("content-disposition", "")
@@ -219,7 +249,7 @@ def _read_cache() -> dict[str, Any] | None:
         payload = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
         fetched_at = datetime.fromisoformat(payload["fetched_at"])
         if datetime.now(timezone.utc) - fetched_at < _CACHE_TTL:
-            return payload
+            return _renormalize_cached_holdings(payload)
     except (FileNotFoundError, KeyError, ValueError, json.JSONDecodeError):
         return None
     return None
@@ -238,7 +268,8 @@ def fetch_official_holdings(force: bool = False) -> dict[str, Any]:
     stale: dict[str, Any] = {}
     try:
         if _CACHE_PATH.exists():
-            stale = json.loads(_CACHE_PATH.read_text(encoding="utf-8")).get("sectors", {})
+            cached_payload = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+            stale = _renormalize_cached_holdings(cached_payload).get("sectors", {})
     except (OSError, ValueError, json.JSONDecodeError):
         stale = {}
 
